@@ -1,0 +1,147 @@
+repository_analysis_task:
+  name: Repository Analysis
+  description: >
+    You have two inputs:
+      - repo_url: {repo_url}
+      - user_request: {user_request}
+
+    STEP 1 — Parse the request. Infer the following from user_request:
+
+      request_type:
+        "whole repo / everything / full suite"          -> full_repo
+        specific file path or module name               -> module
+        feature name ("login", "payments", "checkout")  -> feature
+        "last commit / recent change / <SHA>"           -> recent_commit
+        ambiguous                                       -> prefer feature > module > full_repo
+
+      target:
+        full_repo     -> "all"
+        module        -> exact file or folder path
+        feature       -> feature name as a short string
+        recent_commit -> SHA if provided, else "latest"
+
+      test_focus:
+        "happy path / success / normal flow"            -> happy_path
+        "edge cases / boundaries / corner cases"        -> edge_cases
+        "failures / errors / negative / what breaks"    -> failure_cases
+        not specified                                   -> all
+
+      framework:
+        if user names pytest / jest / mocha / unittest  -> use it
+        otherwise                                       -> auto-detect from repo
+
+    STEP 2 — Quick repo scan (GitHub MCP):
+      - Fetch top-level directory structure
+      - Detect primary language and existing test framework
+      - If recent_commit with no SHA -> fetch latest commit SHA and its diff
+
+    STEP 3 — Read in-scope code (GitHub MCP):
+      full_repo     -> map all source modules, read key files
+      module        -> read only that file and its direct imports
+      feature       -> search for files related to the feature name, read those only
+      recent_commit -> read only files and functions changed in the diff
+
+      For each file read:
+        - List all functions/classes with a one-line description
+        - Note inputs, outputs, and external dependencies
+        - Check for existing test coverage
+        - Flag complex logic, missing error handling, or risky areas
+
+    STEP 4 — Save output (Filesystem MCP):
+      - Save the final report as: outputs/<repo_name>/analysis_report.md
+      - Create the outputs folder if it does not exist
+
+  expected_output: >
+    ## Request Brief
+    - request_summary: one sentence of what the user wants
+    - request_type: full_repo | module | feature | recent_commit
+    - target: resolved value
+    - test_focus: happy_path | edge_cases | failure_cases | all
+    - framework: detected or user-specified
+    - assumptions: any inferences made from ambiguous input
+
+    ## Code Analysis
+    - Files analyzed with paths
+    - Functions/classes per file with short descriptions
+    - Input/output signatures for key functions
+    - Existing test coverage summary
+    - Risk flags: complex logic, missing error handling, untested paths
+
+    Saved to: outputs/<repo_name>/analysis_report.md
+
+  agent: repository_analyst
+  markdown: true
+
+
+test_strategy_task:
+  name: Test Strategy Planning
+  description: >
+    Using the request brief and code analysis, produce a prioritized test plan.
+
+    Apply the test_focus filter strictly:
+      happy_path    -> only valid inputs with expected successful outputs
+      edge_cases    -> only boundaries: nulls, empty inputs, max values, type mismatches
+      failure_cases -> only invalid inputs, missing deps, auth failures, exceptions
+      all           -> balanced mix: 40% happy path, 35% edge cases, 25% failure cases
+
+    For each test scenario define:
+      - Target: module -> function/class
+      - Test type: unit | integration
+      - Input: what is passed in
+      - Expected output: return value, side effect, or exception
+      - Priority: P1 (critical) | P2 (important) | P3 (nice to have)
+
+    Keep total scenarios between 10-20. Cover all P1 targets fully.
+
+    FINAL STEP — Save output (Filesystem MCP):
+      - Save the test plan as: outputs/<repo_name>/test_plan.md
+      - Create the outputs/<repo_name>/ folder if it does not exist
+
+  expected_output: >
+    ## Test Plan
+    - test_focus applied (stated at top)
+    - Per-function scenarios with inputs, expected outputs, and priority
+    - P1 / P2 / P3 count breakdown
+    - Estimated number of test files and their names
+
+    Saved to: outputs/<repo_name>/test_plan.md
+
+  agent: test_strategy_planner
+  context:
+    - repository_analysis_task
+  
+  markdown: true
+
+test_generation_task:
+  name: Test Code Generation
+  description: >
+    Write complete test cases from the test plan and save them using the Filesystem MCP.
+
+    Rules:
+      - Use the language and framework from the request brief
+      - Match the folder and naming conventions already in the project
+      - Write all P1 tests fully; write P2 tests where straightforward
+      - Every test must include all imports, fixtures, and setup — immediately runnable
+      - No placeholder or skeleton tests
+      - Add a one-line docstring per test describing what it validates
+
+    Save output (Filesystem MCP):
+      - Save each test file under: outputs/<repo_name>/testcases/
+      - One file per module tested (e.g. outputs/<repo_name>/testcases/test_auth.py)
+      - Create outputs/<repo_name>/testcases/ folder if it does not exist
+      - Save a summary report as: outputs/<repo_name>/testcases_summary.md
+
+  expected_output: >
+    - Test files saved under outputs/<repo_name>/testcases/
+    - Summary report saved to outputs/<repo_name>/testcases_summary.md containing:
+      - File paths written
+      - Number of test cases per file
+      - Any P1 tests skipped and the reason
+
+    Saved to: outputs/<repo_name>/testcases/ and outputs/<repo_name>/testcases_summary.md
+
+  agent: test_writer_agent
+  context:
+    - repository_analysis_task
+    - test_strategy_task
+  markdown: true

@@ -1,0 +1,20 @@
+[project]
+name = "qa_testing_ai_team"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "crewai[file-processing,google-genai,litellm,tools]>=1.14.3",
+    "gitpython>=3.1.50",
+    "mcp>=1.26.0",
+    "pydantic>=2.11.10",
+    "pydentic>=0.0.1.dev3",
+    "pytest>=9.0.3",
+    "pytest-json-report>=1.5.0",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+    "streamlit>=1.57.0",
+    "streamlit-autorefresh>=1.0.1",
+]
+
