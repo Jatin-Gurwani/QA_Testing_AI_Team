@@ -53,8 +53,7 @@ def _run_crew(repo_url: str, user_request: str, github_pat: str, holder: dict):
             sys.path.insert(0, cwd)
         qa = QACrew()
         inputs = {"repo_url": repo_url, "user_request": user_request}
-        validated = qa.input_validation(inputs)
-        result = qa.crew().kickoff(inputs=validated)
+        result = qa.crew().kickoff(inputs=inputs)
         print("--------->:",result.token_usage)
         holder["status"] = "done"
         holder["result"] = str(result)
