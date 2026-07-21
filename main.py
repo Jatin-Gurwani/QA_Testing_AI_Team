@@ -1,21 +1,69 @@
 from app.crew import QACrew
 import os
+from dotenv import load_dotenv
+from openinference.instrumentation.crewai import CrewAIInstrumentor
+from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
+from openinference.instrumentation.openai import OpenAIInstrumentor
+from openinference.instrumentation.litellm import LiteLLMInstrumentor
+from langfuse import get_client
+load_dotenv()
+
+langfuse_available = False
+try:
+    langfuse = get_client()
+    if langfuse.auth_check():
+        print("✅ Langfuse client is authenticated and ready!")
+        langfuse_available = True
+        # Initialize LLM provider instrumentations BEFORE creating the crew
+        LiteLLMInstrumentor().instrument(skip_dep_check=True)
+        GoogleGenAIInstrumentor().instrument(skip_dep_check=True)
+        OpenAIInstrumentor().instrument(skip_dep_check=True)
+        CrewAIInstrumentor().instrument(skip_dep_check=True)
+
+    else:
+        print("⚠️  Langfuse authentication failed. Continuing without Langfuse.")
+except Exception as e:
+    print(f"⚠️  Langfuse not available ({e}). Continuing without tracing.")
+
+
+
+def run_crew(qacrew, repo_url, change_request):
+    """Execute the crew and print results."""
+    result = qacrew.kickoff(inputs={'repo_url': repo_url, 'user_request': change_request})
+    print(result)
+    print(result.token_usage)
+    return result
+
+
 def main():
-    try:
-        
+
         print("Hello from testing-crew-project!")
         repo_url = input('Enter your Github repo : \n')
-        os.environ["GITHUB_PAT"] = str(input('Enter github token. it will directly saved in os environment later will deleted after  exceution'))
-        change_request = str(input("Enter your request :\n"))
-        results = QACrew().crew().kickoff(inputs={'repo_url':repo_url,'user_request':change_request,'env_vars':""})
-        print(results)
-        print(results.token_usage)
-    except Exception as e:
-        pass
-    finally:
-        os.environ.pop("GITHUB_PAT", None)
-    
-    
+        #repo_url="https://github.com/Jatin-Gurwani/NOTES_APP_FLASK.git"
+        #repo_url ="D:/QA_Testing_AI_Team/outputs/Repo/NOTES_APP_FLASK"
+        #os.environ["DEBUG"]="*"
+        change_request = input("Enter your request :\n")
+
+        if langfuse_available:
+            try:
+                LiteLLMInstrumentor().instrument(skip_dep_check=True)
+                GoogleGenAIInstrumentor().instrument(skip_dep_check=True)
+                OpenAIInstrumentor().instrument(skip_dep_check=True)
+                CrewAIInstrumentor().instrument(skip_dep_check=True)
+                qacrew = QACrew(repo_url).crew()
+                with langfuse.start_as_current_observation(as_type="span", name="crewai-index-trace",input={"user_request":change_request,'repo_url':repo_url}):
+                    run_crew(qacrew, repo_url, change_request)
+            except Exception as e:
+                print(f"⚠️  Langfuse tracing failed during run ({e}). Running crew without tracing.")
+                run_crew(qacrew, repo_url, change_request)
+            finally:
+                try:
+                    langfuse.flush()
+                except Exception:
+                    pass  # flush failure is non-fatal; crew already ran
+        else:
+            qacrew = QACrew(repo_url).crew()
+            run_crew(qacrew, repo_url, change_request)
 
 
 if __name__ == "__main__":

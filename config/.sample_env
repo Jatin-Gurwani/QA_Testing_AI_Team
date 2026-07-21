@@ -1,2 +1,12 @@
 GOOGLE_API_KEY=bla_bla_bla_key
-Model=gemini/gemini-3.1-flash-lite
+STRONG_MODEL=gemini/gemini-3.1-flash-lite
+FAST_MODEL=gemini/gemini-3.1-flash-lite
+
+#langfuse
+LANGFUSE_SECRET_KEY=bla_bla_bla_key
+LANGFUSE_PUBLIC_KEY=bla_bla_bla_key
+LANGFUSE_BASE_URL=http://localhost:3000
+
+#crewai
+OUTPUT_FOLDER=D:/QA_Testing_AI_Team/outputs
+REPO_FOLDER=D:/QA_Testing_AI_Team/outputs/repo
