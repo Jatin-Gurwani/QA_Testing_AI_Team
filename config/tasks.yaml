@@ -1,147 +1,328 @@
 repository_analysis_task:
   name: Repository Analysis
+  annotation: repo_scan
   description: >
-    You have two inputs:
-      - repo_url: {repo_url}
-      - user_request: {user_request}
+  
+    user request : {user_request}
+    project name : {repo_name}
+    project type : {project_type}
 
-    STEP 1 — Parse the request. Infer the following from user_request:
+    Parse user request and scan {local_repo_path} to produce a
+    scoped analysis.
 
-      request_type:
-        "whole repo / everything / full suite"          -> full_repo
-        specific file path or module name               -> module
-        feature name ("login", "payments", "checkout")  -> feature
-        "last commit / recent change / <SHA>"           -> recent_commit
-        ambiguous                                       -> prefer feature > module > full_repo
 
-      target:
-        full_repo     -> "all"
-        module        -> exact file or folder path
-        feature       -> feature name as a short string
-        recent_commit -> SHA if provided, else "latest"
+    
+    Request parsing:
+    - Map request_type from user_request:
+      "whole repo / everything / full suite"          -> full_repo
+      specific file path or module name                -> module
+      feature name ("login", "payments", "checkout")   -> feature
+      "last commit / recent change / <SHA>"             -> recent_commit
+      ambiguous                                          -> prefer feature > module > full_repo
+    - Resolve test_focus: happy_path | edge_cases | failure_cases | all
+    - Detect framework from repo if not specified
 
-      test_focus:
-        "happy path / success / normal flow"            -> happy_path
-        "edge cases / boundaries / corner cases"        -> edge_cases
-        "failures / errors / negative / what breaks"    -> failure_cases
-        not specified                                   -> all
+    Repo scan:
+    - Read readme.md, claude.md, project.md if present
+    - Detect language, build system, existing test framework
+    - **Check existing test files** — read 2-3 existing test files to identify:
+      - file naming convention (test_*.py, *_test.py, *.spec.ts, etc.)
+      - test structure (class-based vs function-based, Arrange-Act-Assert style)
+      - assertion style (assert vs self.assertEqual vs expect().toBe, etc.)
+      - fixtures/setup patterns (pytest fixtures, Jest beforeEach, etc.)
+      - mocking strategy (unittest.mock, pytest-mock, Jest mocks, etc.)
+      - imports pattern and directory layout
+    -when project is "Version controlled" then run below points using mcp-git:
+        - For recent_commit: get SHA + diff via git_diff
+        - Run git_log (last 10 commits) + git_branch
 
-      framework:
-        if user names pytest / jest / mocha / unittest  -> use it
-        otherwise                                       -> auto-detect from repo
+    If no existing tests found, note that explicitly so downstream agents
+    can use sensible defaults (pytest-style for Python, Jest for JS/TS).
 
-    STEP 2 — Quick repo scan (GitHub MCP):
-      - Fetch top-level directory structure
-      - Detect primary language and existing test framework
-      - If recent_commit with no SHA -> fetch latest commit SHA and its diff
+    Code reading (scope by request_type):
+    - full_repo → map all source modules
+    - module → read target file + imports
+    - feature → search & read related files
+    - recent_commit → read changed files only
 
-    STEP 3 — Read in-scope code (GitHub MCP):
-      full_repo     -> map all source modules, read key files
-      module        -> read only that file and its direct imports
-      feature       -> search for files related to the feature name, read those only
-      recent_commit -> read only files and functions changed in the diff
+    Per file: list functions/classes, signatures, existing tests, risk flags
+    (complex logic, missing error handling, concurrency, security).
 
-      For each file read:
-        - List all functions/classes with a one-line description
-        - Note inputs, outputs, and external dependencies
-        - Check for existing test coverage
-        - Flag complex logic, missing error handling, or risky areas
+    Skip: binary files, node_modules, .git, venv, __pycache__.
+    Limit report to 300 words max.
 
-    STEP 4 — Save output (Filesystem MCP):
-      - Save the final report as: outputs/<repo_name>/analysis_report.md
-      - Create the outputs folder if it does not exist
-
+    saving observation using output_writer tool:
+    - Saved to {output_dir}/{repo_name}/analysis_report.md
+ 
   expected_output: >
-    ## Request Brief
-    - request_summary: one sentence of what the user wants
-    - request_type: full_repo | module | feature | recent_commit
-    - target: resolved value
-    - test_focus: happy_path | edge_cases | failure_cases | all
-    - framework: detected or user-specified
-    - assumptions: any inferences made from ambiguous input
+    | Section | Contents |
+    |---|---|
+    | Request Brief | request_summary, type, target, test_focus, framework, assumptions |
+    | Repo Overview | languages, framework, build, #files, #tests, branches, recent commits |
+    | Test Conventions | naming, structure, assertions, fixtures, mocking, imports — or "No existing tests found" |
+    | Code Analysis | files, fn/class per file, signatures, test gaps, risk flags |
+    | Recommendations | 3-5 actionable items + health metrics |
 
-    ## Code Analysis
-    - Files analyzed with paths
-    - Functions/classes per file with short descriptions
-    - Input/output signatures for key functions
-    - Existing test coverage summary
-    - Risk flags: complex logic, missing error handling, untested paths
+    Saved to: {output_dir}/{repo_name}/analysis_report.md
 
-    Saved to: outputs/<repo_name>/analysis_report.md
-
+ 
   agent: repository_analyst
   markdown: true
-
+  guardrail: >
+    Verify: all 5 expected sections present, report ≤ 500 words, every bullet ≤ 50 words.
 
 test_strategy_task:
   name: Test Strategy Planning
+  annotation: planning
   description: >
-    Using the request brief and code analysis, produce a prioritized test plan.
+    From the analysis, produce a prioritized test plan.
 
-    Apply the test_focus filter strictly:
-      happy_path    -> only valid inputs with expected successful outputs
-      edge_cases    -> only boundaries: nulls, empty inputs, max values, type mismatches
-      failure_cases -> only invalid inputs, missing deps, auth failures, exceptions
-      all           -> balanced mix: 40% happy path, 35% edge cases, 25% failure cases
+    Apply test_focus:
+    - happy_path → valid inputs, successful flows
+    - edge_cases → boundaries, nulls, empty, type mismatches
+    - failure_cases → invalid inputs, missing deps, auth failures, exceptions
+    - all → 40% happy, 35% edge, 25% failure
 
-    For each test scenario define:
-      - Target: module -> function/class
-      - Test type: unit | integration
-      - Input: what is passed in
-      - Expected output: return value, side effect, or exception
-      - Priority: P1 (critical) | P2 (important) | P3 (nice to have)
+    Each scenario: target (module→fn/class), type (unit|integration), input,
+    expected output, P1|P2|P3 priority.
 
-    Keep total scenarios between 10-20. Cover all P1 targets fully.
+    Total: 10-20 scenarios. Cover all P1 fully.
 
-    FINAL STEP — Save output (Filesystem MCP):
-      - Save the test plan as: outputs/<repo_name>/test_plan.md
-      - Create the outputs/<repo_name>/ folder if it does not exist
-
+    -save plan at "{output_dir}/{repo_name}/test_plan.md" using output_writer tool
   expected_output: >
     ## Test Plan
-    - test_focus applied (stated at top)
-    - Per-function scenarios with inputs, expected outputs, and priority
-    - P1 / P2 / P3 count breakdown
-    - Estimated number of test files and their names
+    - Test focus: focus type 
+    - Per-function: target, type, input, expected, priority
+    - P1/P2/P3 breakdown
+    - Estimated test files and names
 
-    Saved to: outputs/<repo_name>/test_plan.md
-
+    Saved to: {output_dir}/{repo_name}/test_plan.md
   agent: test_strategy_planner
   context:
     - repository_analysis_task
-  
   markdown: true
+  #guardrail: >
+   # Check: 10-20 scenarios, 100% P1 coverage, test_focus weighting respected.
 
 test_generation_task:
   name: Test Code Generation
+  annotation: generation
   description: >
-    Write complete test cases from the test plan and save them using the Filesystem MCP.
+    Write runnable test files from the test plan. Use the language & framework
+    from the analysis. Match existing project conventions.
 
     Rules:
-      - Use the language and framework from the request brief
-      - Match the folder and naming conventions already in the project
-      - Write all P1 tests fully; write P2 tests where straightforward
-      - Every test must include all imports, fixtures, and setup — immediately runnable
-      - No placeholder or skeleton tests
-      - Add a one-line docstring per test describing what it validates
-
-    Save output (Filesystem MCP):
-      - Save each test file under: outputs/<repo_name>/testcases/
-      - One file per module tested (e.g. outputs/<repo_name>/testcases/test_auth.py)
-      - Create outputs/<repo_name>/testcases/ folder if it does not exist
-      - Save a summary report as: outputs/<repo_name>/testcases_summary.md
-
+    - All P1 tests complete; P2,P3 where straightforward
+    - Every test: imports, fixtures, setup, one-line docstring
+    - No placeholders or skeletons
+    - One file per module under {output_dir}/{repo_name}/testcases/
+    - All the test file and summary should be saved using output_writer tool
+    - Follow the test conventions noted in the analysis (naming, structure, assertions, mock style)
   expected_output: >
-    - Test files saved under outputs/<repo_name>/testcases/
-    - Summary report saved to outputs/<repo_name>/testcases_summary.md containing:
-      - File paths written
-      - Number of test cases per file
-      - Any P1 tests skipped and the reason
+    - Files in {output_dir}/{repo_name}/testcases/ — one per module
+    - {output_dir}/{repo_name}/testcases_summary.md with: paths, test count per file, skipped P1 + reason
 
-    Saved to: outputs/<repo_name>/testcases/ and outputs/<repo_name>/testcases_summary.md
-
+    Saved to {output_dir}/{repo_name}/testcases/ and *_summary.md
   agent: test_writer_agent
   context:
     - repository_analysis_task
     - test_strategy_task
   markdown: true
+  #guardrail: >
+   # Verify: all P1 scenarios exist, files are syntactically valid, summary lists every file written.
+
+env_setup_task:
+  name: Test Environment Provisioning
+  annotation: env_setup
+  description: >
+    Provision an isolated Docker sandbox for test execution based on
+    the repository analysis.
+
+    Inputs from previous stages:
+    - Analysis report: project language, framework, build system, test framework
+    - Test plan: confirms the test runner to install
+
+    Your job:
+    1. Check if the project has a Dockerfile. If not, create one that:
+       - Uses the right base image for the project's language/framework
+       - Copies the project into the container
+       - Installs all dependencies (runtime + test)
+       - Sets up the test runner
+       - Save it to {output_dir}/{repo_name}/Dockerfile using output_writer
+       If a Dockerfile exists, use it as-is — do not modify it.
+    2. Build the image via the Docker MCP build_image tool.
+    3. Run the container via run_container with port mappings and volume
+       mounts for {output_dir}.
+    4. Verify the container is healthy — use exec_in_container for a
+       quick probe (python --version, npm --version, etc.).
+    5. Install any missing test dependencies via exec_in_container.
+    6. Confirm the test runner is operational inside the container.
+    7. If any step fails: diagnose via get_container_logs, fix, retry.
+       Stop after 3 failed build attempts and report the failure clearly.
+
+    Your handoff to the test engineer must include: container name, container
+    ID, test folder path inside the container, and a summary of installed
+    tooling with versions.
+
+    Rules:
+    - Never modify an existing Dockerfile — only create one if missing.
+    - Prefix container names with "byagent_".
+    - Every file you create must be saved via output_writer.
+    - Document what you did — the container is disposable and must be
+      reproducible or cleanly removable.
+  expected_output: >
+    A sandbox handoff report saved to {output_dir}/{repo_name}/sandbox_handoff.md
+    with exactly these fields:
+
+    | Field | Description |
+    |---|---|
+    | Container Status | Running / Failed (with reason if failed) |
+    | Container Name | Name passed to run_container |
+    | Container ID | Full Docker container ID |
+    | Test Folder Path | Absolute path inside the container where tests go |
+    | Installed Tooling | Language runtime, test runner, key dependencies — with versions |
+    | Dockerfile Created | "Yes — {output_dir}/{repo_name}/Dockerfile" or "No — existing Dockerfile used" |
+    | Build Summary | Steps taken, issues encountered and resolved, total provisioning time |
+
+  agent: sandbox_engineer
+  context:
+    - repository_analysis_task
+    - test_strategy_task
+  markdown: true
+  #guardrail: >
+  #  Verify: all 7 handoff fields present, container name starts with "byagent_",
+  #  test runner confirmed operational, Dockerfile path valid if created.
+
+test_execution_task:
+  name: Test Execution & Root Cause Analysis
+  annotation: execution
+  description: >
+    Execute the generated test suite inside the provisioned sandbox, analyze
+    every failure to its root cause, and produce a definitive pass/fail report
+    with actionable diagnosis.
+
+    Inputs from previous stages:
+    - Test plan: scenarios, priorities, and expected results
+    - Generated tests: {output_dir}/{repo_name}/testcases/
+    - Sandbox handoff: container name, test folder path, confirmed test runner
+
+    Your job:
+    1. Read {output_dir}/{repo_name}/test_plan.md and sandbox_handoff.md
+       to understand what to run and where.
+    2. Upload test files into the container using the Docker MCP run_tests tool
+       with upload_from_folder = {output_dir}/{repo_name}/testcases/.
+    3. Execute the full suite via run_tests — capture stdout, stderr, exit codes.
+    4. For every failing test:
+       - Isolate the exact error and stack trace via get_container_logs.
+       - Diagnose root cause category:
+         • Test bug (missing import, wrong fixture, syntax error) → fix in-place, re-run to confirm
+         • Environment issue (missing dependency, wrong version) → document with evidence
+         • Code defect (actual product bug) → flag with evidence, do NOT fix product code
+       - Save each failure's root cause analysis to:
+         {output_dir}/{repo_name}/test_results/fail_cases/<test_name>_rca.md
+    5. Compile a per-test result table with pass/fail/skip and concise failure reasons.
+    6. Save full container logs to {output_dir}/{repo_name}/test_results/container_logs.txt.
+    7. After all results are saved, stop and remove the container via
+       stop_and_remove_container.
+
+    Rules:
+    - Every result file must be saved via output_writer.
+    - Never leave a container running after testing — always clean up.
+    - Distinguish clearly: test bug (you fix it) vs environment issue (you document
+      it) vs code defect (you flag it — do not touch product source).
+  expected_output: >
+    A test execution report saved to {output_dir}/{repo_name}/test_results/test_report.md
+    with these 5 sections:
+
+    | Section | Contents |
+    |---|---|
+    | Execution Summary | Total, passed, failed, skipped, pass rate %, total execution time |
+    | Per-Test Results | Table: test name, source file, priority (P1/P2/P3), result, duration |
+    | Failure Analysis | Per failure: test name, error type, root cause category (test bug / environment / code defect), 1-line diagnosis, link to RCA file |
+    | Flaky Tests | Any test that passed on retry after a trivial fix — what was changed |
+    | Container Cleanup | Confirmation container was stopped and removed |
+
+    Additional files:
+    - {output_dir}/{repo_name}/test_results/fail_cases/<name>_rca.md — one per unique failure
+    - {output_dir}/{repo_name}/test_results/container_logs.txt — full container logs
+
+  agent: senior_test_engineer
+  context:
+    - repository_analysis_task
+    - test_strategy_task
+    - test_generation_task
+    - env_setup_task
+  markdown: true
+  #guardrail: >
+  # Verify: all 5 report sections present, pass rate calculated correctly,
+  #  every failure has a linked RCA file, container cleanup confirmed.
+
+qa_audit_task:
+  name: QA Audit & Final Report
+  annotation: audit
+  description: >
+    Audit every artifact from the test generation pipeline and produce a
+    comprehensive final report grading quality at each phase. The report
+    must be ready for an engineering director: accurate, fair, and actionable.
+
+    Artifacts to audit:
+    1. {output_dir}/{repo_name}/analysis_report.md
+       - All 5 sections present? Under word limit? Claims substantiated with
+         specific code references? Did it give the planner enough to work with?
+    2. {output_dir}/{repo_name}/test_plan.md
+       - 10-20 scenarios? Clear P1/P2/P3 priorities? Test focus weighting
+         respected? All P1 scenarios fully covered?
+    3. {output_dir}/{repo_name}/testcases/ and testcases_summary.md
+       - All P1 tests implemented? No placeholders or skeletons? Follow
+         project conventions? Syntactically valid and immediately runnable?
+    4. {output_dir}/{repo_name}/sandbox_handoff.md
+       - All 7 handoff fields present? Container provisioned correctly?
+         Test runner confirmed operational?
+    5. {output_dir}/{repo_name}/test_results/test_report.md and fail_cases/
+       - Pass/fail breakdown accurate? Every failure has a credible root cause
+         with evidence? Trivial fixes applied correctly? Non-trivial issues
+         flagged clearly?
+
+    For each phase, assign a grade (A/B/C/D/F) backed by concrete evidence:
+    - What worked — cite a specific example from the artifact
+    - What didn't — cite a specific example
+    - What's missing — if anything was skipped or incomplete
+
+    Report structure:
+    1. Executive Summary (≤ 150 words) — overall verdict, key metrics, top risk
+    2. Phase-by-Phase Audit — 5 sections, one per phase, each with grade + evidence
+    3. Cross-Phase Observations — patterns spanning multiple phases (e.g., "test
+       plan missed edge cases that the analysis explicitly flagged")
+    4. Prioritized Recommendations — 3-5 actions ranked by urgency, each with:
+       what to do, why, and expected impact (high/medium/low)
+
+    Tone: fair, direct, no jargon. Write for an engineering director with 5
+    minutes to read this. Lead with the verdict, support with evidence, end
+    with what to do next.
+  expected_output: >
+    A final QA audit report saved to {output_dir}/{repo_name}/final_audit_report.md
+    with these 8 sections:
+
+    | Section | Contents |
+    |---|---|
+    | Executive Summary | ≤150 words: overall quality verdict, pass rate, phase grades at a glance, #1 risk |
+    | Phase 1: Analysis Audit | Grade A-F, what worked (with example), what didn't (with example), gaps |
+    | Phase 2: Test Plan Audit | Grade A-F, what worked (with example), what didn't (with example), gaps |
+    | Phase 3: Test Generation Audit | Grade A-F, what worked (with example), what didn't (with example), gaps |
+    | Phase 4: Sandbox Audit | Grade A-F, what worked (with example), what didn't (with example), gaps |
+    | Phase 5: Execution Audit | Grade A-F, what worked (with example), what didn't (with example), gaps |
+    | Cross-Phase Patterns | 2-3 observations spanning multiple phases |
+    | Recommendations | 3-5 prioritized actions: what, why, expected impact (high/medium/low) |
+
+  agent: qa_expert
+  context:
+    - repository_analysis_task
+    - test_strategy_task
+    - test_generation_task
+    - env_setup_task
+    - test_execution_task
+  markdown: true
+  #guardrail: >
+  #  Verify: all 8 sections present, executive summary ≤ 150 words, every grade
+  # backed by at least one concrete example from the artifact, recommendations
+  #  prioritized with impact ratings, no jargon or padding.
