@@ -51,7 +51,33 @@ The system consists of six AI agents working in sequence:
 Configuration is managed through YAML files:
 - `config/agents.yaml`: Defines the AI agents and their roles
 - `config/tasks.yaml`: Defines the tasks each agent performs
+- `config/pipeline_modes.yaml`: Defines the selectable task modes shared by the CLI and GUI
 - `config/.env`: Stores API keys and configuration
+
+To customize the pipeline modes shown in both interfaces, edit `config/pipeline_modes.yaml`.
+Each entry defines a mode key, label, description, icon, task names, and agents shown in the GUI.
+Task names must exactly match the `name` values in `config/tasks.yaml`; invalid names are reported
+when the configuration loads. An empty `tasks` list runs all tasks in the default order.
+
+For example, add another entry under `modes` to make a custom selection available in both the
+CLI and GUI:
+
+```yaml
+modes:
+  # Keep the existing modes and add this entry alongside them.
+  analysis_and_tests:
+    label: "Analysis and Tests"
+    description: "Analyze the repository and generate tests"
+    icon: "🧪"
+    tasks:
+      - Repository Analysis
+      - Test Strategy Planning
+      - Test Code Generation
+    agents_used:
+      - Repository Analyst
+      - Strategy Planner
+      - Test Writer
+```
 
 ## Installation
 
@@ -87,7 +113,7 @@ uv run python main.py
 The CLI will prompt you for:
 1. Repository path or GitHub URL
 2. Your testing request
-3. Pipeline mode selection (`only_generation`, `run_testcase`, `both`)
+3. Pipeline mode selection from `config/pipeline_modes.yaml`
 
 ### Graphical User Interface
 

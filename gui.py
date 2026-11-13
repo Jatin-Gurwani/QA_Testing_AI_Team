@@ -3,8 +3,11 @@ import sys
 import os
 import threading
 import traceback
+from html import escape
 from pathlib import Path
 from datetime import datetime
+
+from app.pipeline_modes import load_pipeline_modes, load_task_names
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -72,36 +75,18 @@ def get_output_dir_for_repo(repo_name: str) -> Path:
     return Path(crew_output_dir) / repo_name
 
 
-# ── Task type definitions (mirrors main.py) ───────────────────────────────────
+# ── Shared pipeline mode definitions ──────────────────────────────────────────
+PIPELINE_MODES = load_pipeline_modes()
+ALL_TASK_NAMES = load_task_names()
 TASK_TYPES = {
-    "only_generation": {
-        "label": "🧪 Generate Tests Only",
-        "description": "Analyze repo → Plan strategy → Write test code",
-        "icon": "🧪",
-        "tasks": ["Repository Analysis", "Test Strategy Planning", "Test Code Generation"],
-        "agents_used": ["Repository Analyst", "Strategy Planner", "Test Writer"],
-    },
-    "run_testcase": {
-        "label": "🚀 Full Pipeline (Generate + Execute)",
-        "description": "Analyze → Plan → Write → Docker sandbox → Execute → QA Audit",
-        "icon": "🚀",
-        "tasks": [
-            "Repository Analysis", "Test Strategy Planning", "Test Code Generation",
-            "Test Environment Provisioning", "Test Execution & Root Cause Analysis",
-            "QA Audit & Final Report",
-        ],
-        "agents_used": [
-            "Repository Analyst", "Strategy Planner", "Test Writer",
-            "Sandbox Engineer", "Senior Test Engineer", "QA Expert",
-        ],
-    },
-    "both": {
-        "label": "⚙️ All Tasks (Default Order)",
-        "description": "Run every task in the crew's default sequential order",
-        "icon": "⚙️",
-        "tasks": [],
-        "agents_used": ["All 6 Agents"],
-    },
+    key: {
+        "label": mode.label,
+        "description": mode.description,
+        "icon": mode.icon,
+        "tasks": list(mode.tasks),
+        "agents_used": list(mode.agents_used),
+    }
+    for key, mode in PIPELINE_MODES.items()
 }
 
 
@@ -113,7 +98,7 @@ _defaults = {
     "error": None,
     "result_holder": None,
     "crew_thread": None,
-    "task_type": "only_generation",
+    "task_type": next(iter(TASK_TYPES)),
     "langfuse_status": None,  # None | "connected" | "unavailable"
     "run_start_time": None,
     "run_log": [],
@@ -122,6 +107,8 @@ _defaults = {
 for k, v in _defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+if st.session_state.task_type not in TASK_TYPES:
+    st.session_state.task_type = next(iter(TASK_TYPES))
 
 
 # ── Crew runner (background thread) ──────────────────────────────────────────
@@ -135,17 +122,8 @@ def _run_crew(repo_path: str, user_request: str, task_type: str, holder: dict):
         QACrew = _import_crew()
         langfuse, langfuse_available = _import_langfuse()
 
-        task_dict = {
-            "only_generation": ["Repository Analysis", "Test Strategy Planning", "Test Code Generation"],
-            "run_testcase": [
-                "Repository Analysis", "Test Strategy Planning", "Test Code Generation",
-                "Test Environment Provisioning", "Test Execution & Root Cause Analysis",
-                "QA Audit & Final Report",
-            ],
-            "both": [],
-        }
-
-        tasks_list = task_dict.get(task_type, [])
+        mode = PIPELINE_MODES[task_type]
+        tasks_list = list(mode.tasks)
         qa = QACrew(repo_path)
         qacrew = qa.crew(tasks_name_list=tasks_list)
 
@@ -214,23 +192,28 @@ def _render_running_status():
 
     repo_display = st.session_state.repo_name
     task_info = TASK_TYPES.get(st.session_state.task_type, {})
+    agent_card_details = {
+        "Repository Analyst": ("&#x1F50D;", "Repository", "Analyst"),
+        "Strategy Planner": ("&#x1F4CB;", "Strategy", "Planner"),
+        "Test Writer": ("&#x270D;&#xFE0F;", "Test", "Writer"),
+        "Sandbox Engineer": ("&#x1F433;", "Sandbox", "Engineer"),
+        "Senior Test Engineer": ("&#x1F3C3;", "Senior Test", "Engineer"),
+        "QA Expert": ("&#x1F4CA;", "QA", "Expert"),
+    }
+    configured_agents = task_info.get("agents_used", [])
+    if "All 6 Agents" in configured_agents:
+        configured_agents = list(agent_card_details)
     agent_cards_data = [
-        ("&#x1F50D;", "Repository", "Analyst"),
-        ("&#x1F4CB;", "Strategy", "Planner"),
-        ("&#x270D;&#xFE0F;", "Test", "Writer"),
-        ("&#x1F433;", "Sandbox", "Engineer"),
-        ("&#x1F3C3;", "Senior Test", "Engineer"),
-        ("&#x1F4CA;", "QA", "Expert"),
+        agent_card_details.get(agent, ("&#x1F464;", agent, ""))
+        for agent in configured_agents
     ]
-    if st.session_state.task_type == "only_generation":
-        agent_cards_data = agent_cards_data[:3]
 
     agent_cards_html = "".join(
         (
             '<div class="agent-card">'
             '<div class="agent-dot"></div>'
             f'<span class="agent-emoji">{emoji}</span>'
-            f'<div class="agent-name">{line1}<br>{line2}</div>'
+            f'<div class="agent-name">{escape(line1)}<br>{escape(line2)}</div>'
             "</div>"
         )
         for emoji, line1, line2 in agent_cards_data
@@ -241,8 +224,8 @@ def _render_running_status():
     <div class="anim-icon">&#x1F9EA;</div>
     <div class="anim-title">Running QA Crew</div>
     <div class="anim-sub">
-        Analysing <strong style="color:#58A6FF;">{repo_display}</strong>
-        &mdash; {task_info.get('description', 'processing')}&hellip;
+        Analysing <strong style="color:#58A6FF;">{escape(repo_display)}</strong>
+        &mdash; {escape(task_info.get('description', 'processing'))}&hellip;
         <br><span style="font-size:11px;color:#484F58;">{elapsed_str}</span>
     </div>
     <div class="agent-row">{agent_cards_html}</div>
@@ -670,7 +653,7 @@ if st.session_state.status == "idle":
         task_type = st.radio(
             "Select execution mode",
             options=list(TASK_TYPES.keys()),
-            format_func=lambda k: TASK_TYPES[k]["label"],
+            format_func=lambda k: f"{TASK_TYPES[k]['icon']} {TASK_TYPES[k]['label']}",
             horizontal=True,
             help="Choose which phases of the pipeline to run.",
         )
@@ -702,10 +685,7 @@ if st.session_state.status == "idle":
 
         # Show pipeline steps
         pipeline_html = '<div class="pipeline-row">'
-        for i, step in enumerate(selected["tasks"] or [
-            "Repository Analysis", "Test Strategy Planning", "Test Code Generation",
-            "Test Environment Provisioning", "Test Execution & RCA", "QA Audit & Final Report",
-        ]):
+        for i, step in enumerate(selected["tasks"] or ALL_TASK_NAMES):
             short = step.replace("Test ", "").replace("Repository ", "Repo ").replace(" & Root Cause Analysis", " & RCA")
             if i > 0:
                 pipeline_html += '<span class="pipeline-arrow">&#x2192;</span>'
@@ -722,24 +702,24 @@ if st.session_state.status == "idle":
 
         st.markdown("---")
         st.markdown("**Output artifacts:**")
-        if task_type == "only_generation":
-            st.markdown("""
-- `analysis_report.md`
-- `test_plan.md`
-- `testcases/` (test files)
-- `testcases_summary.md`
-            """)
-        else:
-            st.markdown("""
-- `analysis_report.md`
-- `test_plan.md`
-- `testcases/` (test files)
-- `testcases_summary.md`
-- `sandbox_handoff.md`
-- `test_results/test_report.md`
-- `test_results/fail_cases/*.md`
-- `final_audit_report.md`
-            """)
+        active_tasks = set(selected["tasks"] or ALL_TASK_NAMES)
+        artifacts = []
+        if "Repository Analysis" in active_tasks:
+            artifacts.append("`analysis_report.md`")
+        if "Test Strategy Planning" in active_tasks:
+            artifacts.append("`test_plan.md`")
+        if "Test Code Generation" in active_tasks:
+            artifacts.extend(["`testcases/` (test files)", "`testcases_summary.md`"])
+        if "Test Environment Provisioning" in active_tasks:
+            artifacts.append("`sandbox_handoff.md`")
+        if "Test Execution & Root Cause Analysis" in active_tasks:
+            artifacts.extend([
+                "`test_results/test_report.md`",
+                "`test_results/fail_cases/*.md`",
+            ])
+        if "QA Audit & Final Report" in active_tasks:
+            artifacts.append("`final_audit_report.md`")
+        st.markdown("\n".join(f"- {artifact}" for artifact in artifacts))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -821,15 +801,26 @@ elif st.session_state.status == "done":
     st.markdown("")
 
     # ── Tabbed results ──
-    tab_labels = ["🧪 Test Cases", "📄 Analysis", "📋 Test Plan"]
-    if _task_type in ("run_testcase", "both"):
-        tab_labels += ["🐳 Sandbox", "🏃 Execution", "📊 QA Audit"]
-    tab_labels.append("📝 Raw Output")
+    active_tasks = set(PIPELINE_MODES[_task_type].tasks or ALL_TASK_NAMES)
+    result_sections = []
+    if "Test Code Generation" in active_tasks:
+        result_sections.append(("cases", "🧪 Test Cases"))
+    if "Repository Analysis" in active_tasks:
+        result_sections.append(("analysis", "📄 Analysis"))
+    if "Test Strategy Planning" in active_tasks:
+        result_sections.append(("plan", "📋 Test Plan"))
+    if "Test Environment Provisioning" in active_tasks:
+        result_sections.append(("sandbox", "🐳 Sandbox"))
+    if "Test Execution & Root Cause Analysis" in active_tasks:
+        result_sections.append(("execution", "🏃 Execution"))
+    if "QA Audit & Final Report" in active_tasks:
+        result_sections.append(("audit", "📊 QA Audit"))
+    result_sections.append(("raw", "📝 Raw Output"))
 
-    tabs = st.tabs(tab_labels, on_change="rerun")
+    tabs = st.tabs([label for _, label in result_sections], on_change="rerun")
 
-    def _render_result_tab(tab_index: int):
-        if tab_index == 0:
+    def _render_result_tab(section: str):
+        if section == "cases":
             if _test_files:
                 _summary = read_output_file(_repo, "testcases_summary.md")
                 if _summary:
@@ -859,25 +850,25 @@ elif st.session_state.status == "done":
                     f"No test files found under `outputs/{_repo}/testcases/`\n\n"
                     "The test writer agent may not have saved files yet."
                 )
-        elif tab_index == 1:
+        elif section == "analysis":
             _analysis = read_output_file(_repo, "analysis_report.md")
             if _analysis:
                 st.markdown(_analysis)
             else:
                 st.info(f"`outputs/{_repo}/analysis_report.md` not found.")
-        elif tab_index == 2:
+        elif section == "plan":
             _plan = read_output_file(_repo, "test_plan.md")
             if _plan:
                 st.markdown(_plan)
             else:
                 st.info(f"`outputs/{_repo}/test_plan.md` not found.")
-        elif _task_type in ("run_testcase", "both") and tab_index == 3:
+        elif section == "sandbox":
             _sandbox = read_output_file(_repo, "sandbox_handoff.md")
             if _sandbox:
                 st.markdown(_sandbox)
             else:
                 st.info(f"`outputs/{_repo}/sandbox_handoff.md` not found.")
-        elif _task_type in ("run_testcase", "both") and tab_index == 4:
+        elif section == "execution":
             _exec_report = read_output_file(_repo, "test_results/test_report.md")
             if _exec_report:
                 st.markdown(_exec_report)
@@ -907,13 +898,13 @@ elif st.session_state.status == "done":
                             logs_path.read_text(encoding="utf-8", errors="replace"),
                             language="text",
                         )
-        elif _task_type in ("run_testcase", "both") and tab_index == 5:
+        elif section == "audit":
             _audit = read_output_file(_repo, "final_audit_report.md")
             if _audit:
                 st.markdown(_audit)
             else:
                 st.info(f"`outputs/{_repo}/final_audit_report.md` not found.")
-        else:
+        elif section == "raw":
             raw_result = holder.get("result", "No raw output captured.")
             st.code(raw_result, language="text")
             token_usage = holder.get("token_usage", "N/A")
@@ -922,10 +913,10 @@ elif st.session_state.status == "done":
                 st.markdown("**Token Usage:**")
                 st.code(token_usage, language="text")
 
-    for tab_index, tab in enumerate(tabs):
+    for (section, _), tab in zip(result_sections, tabs):
         if tab.open:
             with tab:
-                _render_result_tab(tab_index)
+                _render_result_tab(section)
 
     # ── Action buttons ──
     st.markdown("<br>", unsafe_allow_html=True)

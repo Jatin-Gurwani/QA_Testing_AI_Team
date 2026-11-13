@@ -13,7 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The project is a CrewAI-based application (Phase 2) designed to generate, execute, and audit test cases for a given repository. It consists of:
 
 - **main.py**: Entry point for command-line interface. Prompts for repository path/URL and user request, supports Langfuse observability, and selectable pipeline modes (`only_generation`, `run_testcase`, `both`).
-- **gui.py**: Streamlit-based graphical interface (wide layout, sidebar) that provides a full-featured dashboard with pipeline mode selection, animated progress, tabbed results (Test Cases, Analysis, Test Plan, Sandbox, Execution, QA Audit), run history, and Langfuse status.
+- **gui.py**: Streamlit-based graphical interface (wide layout, sidebar) that provides a full-featured dashboard with pipeline mode selection, animated progress, tabbed results (Test Cases, Analysis, Test Plan, Sandbox, Execution, QA Audit), run history, and Langfuse status. Pipeline modes are loaded from `config/pipeline_modes.yaml`.
+- **app/pipeline_modes.py**: Loads and validates shared pipeline mode definitions and ensures configured task names exist in `config/tasks.yaml`.
 - **app/crew.py**: Defines the `QACrew` class which takes a repo path/URL, supports local paths, git repos, and remote `.git` URLs. Uses `FAST_MODEL`, `STRONG_MODEL`, and `NVIDIA_MODEL` LLMs. Sets up 6 agents and 6 tasks via CrewAI decorators. Supports task filtering via `tasks_name_list` parameter.
 - **config/agents.yaml**: Defines 6 agents:
   - `repository_analyst`: Code analysis & triage
@@ -36,6 +37,8 @@ The project is a CrewAI-based application (Phase 2) designed to generate, execut
 - **only_generation**: Analyze → Plan → Write tests (3 agents)
 - **run_testcase**: Full pipeline with Docker execution + QA audit (6 agents)
 - **both**: All tasks in default sequential order
+
+Pipeline mode choices, task selections, labels, and GUI preview metadata are configured in `config/pipeline_modes.yaml` and shared by the CLI and GUI. An empty `tasks` list selects the crew's full default task sequence.
 
 The application uses MCP servers for filesystem access, git operations, and Docker management.
 

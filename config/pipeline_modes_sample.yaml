@@ -1,0 +1,46 @@
+modes:
+  only_generation:
+    label: "Generate Tests Only"
+    description: "Analyze repo → Plan strategy → Write test code"
+    icon: "🧪"
+    tasks:
+      - Repository Analysis
+      - Test Strategy Planning
+      - Test Code Generation
+    agents_used:
+      - Repository Analyst
+      - Strategy Planner
+      - Test Writer
+
+  run_testcase:
+    label: "Full Pipeline (Generate + Execute)"
+    description: "Analyze → Plan → Write → Docker sandbox → Execute → QA Audit"
+    icon: "🚀"
+    tasks:
+      - Repository Analysis
+      - Test Strategy Planning
+      - Test Code Generation
+      - Test Environment Provisioning
+      - Test Execution & Root Cause Analysis
+      - QA Audit & Final Report
+    agents_used:
+      - Repository Analyst
+      - Strategy Planner
+      - Test Writer
+      - Sandbox Engineer
+      - Senior Test Engineer
+      - QA Expert
+
+  both:
+    label: "All Tasks (Default Order)"
+    description: "Run every task in the crew's default sequential order"
+    icon: "⚙️"
+    tasks: []
+    agents_used:
+      - Repository Analyst
+      - Strategy Planner
+      - Test Writer
+      - Sandbox Engineer
+      - Senior Test Engineer
+      - QA Expert
+      

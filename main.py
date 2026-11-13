@@ -1,4 +1,5 @@
 from app.crew import QACrew
+from app.pipeline_modes import load_pipeline_modes
 import os
 from dotenv import load_dotenv
 from openinference.instrumentation.crewai import CrewAIInstrumentor
@@ -43,12 +44,14 @@ def main():
         #repo_url ="D:/QA_Testing_AI_Team/outputs/Repo/NOTES_APP_FLASK"
         #os.environ["DEBUG"]="*"
         change_request = input("Enter your request :\n")
-        task_dict = {"only_generation":["Repository Analysis","Test Strategy Planning","Test Code Generation"],
-                     "run_testcase":["Repository Analysis","Test Strategy Planning","Test Code Generation","Test Environment Provisioning","Test Execution & Root Cause Analysis","QA Audit & Final Report"],
-                     "both":[]}
-        for tk in task_dict.keys():
-            print(tk)
-        task_type = input("select request type from above \n")
+        pipeline_modes = load_pipeline_modes()
+        for key, mode in pipeline_modes.items():
+            print(f"{key} - {mode.icon} {mode.label}")
+        task_type = input("select request type from above \n").strip()
+        mode = pipeline_modes.get(task_type)
+        if mode is None:
+            print(f"Unknown pipeline mode {task_type!r}. Choose one of: {', '.join(pipeline_modes)}")
+            return
 
 
         if langfuse_available:
@@ -57,7 +60,7 @@ def main():
                 GoogleGenAIInstrumentor().instrument(skip_dep_check=True)
                 OpenAIInstrumentor().instrument(skip_dep_check=True)
                 CrewAIInstrumentor().instrument(skip_dep_check=True)
-                qacrew = QACrew(repo_url).crew(tasks_name_list=task_dict.get(task_type,[]))
+                qacrew = QACrew(repo_url).crew(tasks_name_list=list(mode.tasks))
                 with langfuse.start_as_current_observation(as_type="span", name="crewai-index-trace",input={"user_request":change_request,'repo_url':repo_url,'task_type':task_type}):
                     run_crew(qacrew, repo_url, change_request)
             except Exception as e:
@@ -69,8 +72,8 @@ def main():
                 except Exception:
                     pass  # flush failure is non-fatal; crew already ran
         else:
-            print(task_dict.get(task_type,[]))
-            qacrew = QACrew(repo_url).crew(tasks_name_list=task_dict.get(task_type,[]))
+            print(list(mode.tasks))
+            qacrew = QACrew(repo_url).crew(tasks_name_list=list(mode.tasks))
             run_crew(qacrew, repo_url, change_request)
 
 
