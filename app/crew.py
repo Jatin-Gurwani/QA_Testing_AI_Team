@@ -219,16 +219,17 @@ class QACrew:
     # ── Crew ──────────────────────────────────────────────────
     @crew
     def crew(self,tasks_name_list:list=[]) -> Crew:
+        print(f" task name received : {tasks_name_list}")
         if tasks_name_list ==[]:
             return Crew(
                 agents=self.agents,
-                tasks=[self.tasks[0]],
+                tasks=self.tasks,
                 process=Process.sequential,
                 verbose=True,
                 max_rpm=12,
             )
         else:
-            print([i.name for i in self.tasks])
+            print(f"task available : {[i.name for i in self.tasks]}")
             selected_tasks = [t for t in self.tasks if t.name in tasks_name_list]
             return Crew(
                 agents=self.agents,

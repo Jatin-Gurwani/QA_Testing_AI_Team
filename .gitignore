@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+uv.lock
+.vscode/
+.crewai/
 
 #results folder
 outputs/

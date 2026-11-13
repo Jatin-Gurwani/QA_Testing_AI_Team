@@ -43,6 +43,13 @@ def main():
         #repo_url ="D:/QA_Testing_AI_Team/outputs/Repo/NOTES_APP_FLASK"
         #os.environ["DEBUG"]="*"
         change_request = input("Enter your request :\n")
+        task_dict = {"only_generation":["Repository Analysis","Test Strategy Planning","Test Code Generation"],
+                     "run_testcase":["Repository Analysis","Test Strategy Planning","Test Code Generation","Test Environment Provisioning","Test Execution & Root Cause Analysis","QA Audit & Final Report"],
+                     "both":[]}
+        for tk in task_dict.keys():
+            print(tk)
+        task_type = input("select request type from above \n")
+
 
         if langfuse_available:
             try:
@@ -50,8 +57,8 @@ def main():
                 GoogleGenAIInstrumentor().instrument(skip_dep_check=True)
                 OpenAIInstrumentor().instrument(skip_dep_check=True)
                 CrewAIInstrumentor().instrument(skip_dep_check=True)
-                qacrew = QACrew(repo_url).crew()
-                with langfuse.start_as_current_observation(as_type="span", name="crewai-index-trace",input={"user_request":change_request,'repo_url':repo_url}):
+                qacrew = QACrew(repo_url).crew(tasks_name_list=task_dict.get(task_type,[]))
+                with langfuse.start_as_current_observation(as_type="span", name="crewai-index-trace",input={"user_request":change_request,'repo_url':repo_url,'task_type':task_type}):
                     run_crew(qacrew, repo_url, change_request)
             except Exception as e:
                 print(f"⚠️  Langfuse tracing failed during run ({e}). Running crew without tracing.")
@@ -62,7 +69,8 @@ def main():
                 except Exception:
                     pass  # flush failure is non-fatal; crew already ran
         else:
-            qacrew = QACrew(repo_url).crew()
+            print(task_dict.get(task_type,[]))
+            qacrew = QACrew(repo_url).crew(tasks_name_list=task_dict.get(task_type,[]))
             run_crew(qacrew, repo_url, change_request)
 
 
